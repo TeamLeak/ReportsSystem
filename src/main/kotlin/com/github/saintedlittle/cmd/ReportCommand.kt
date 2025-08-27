@@ -22,7 +22,8 @@ class ReportCommand(private val plugin: MainActivity) : CommandExecutor, TabComp
             "reports" -> {
                 if (sender !is Player) { plugin.messages.send(sender, "player_only"); return true }
                 if (!sender.hasPermission("hgnreports.admin")) { plugin.messages.send(sender, "no_permission"); return true }
-                plugin.reportsMenu.open(sender)
+                val closed = args.isNotEmpty() && args[0].equals("closed", ignoreCase = true)
+                plugin.reportsMenu.open(sender, closedOnly = closed)
                 return true
             }
 
@@ -311,6 +312,12 @@ class ReportCommand(private val plugin: MainActivity) : CommandExecutor, TabComp
         alias: String,
         args: Array<out String>
     ): MutableList<String> {
+        if (command.name.equals("reports", true)) {
+            if (sender.hasPermission("hgnreports.admin") && args.size == 1) {
+                return mutableListOf("closed")
+            }
+            return mutableListOf()
+        }
         if (command.name.equals("report", ignoreCase = true)) {
             if (args.size == 1) {
                 if (sender is Player && !sender.hasPermission("hgnreports.admin")) {

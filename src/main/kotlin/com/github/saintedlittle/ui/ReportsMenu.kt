@@ -1,6 +1,7 @@
 package com.github.saintedlittle.ui
 
 import com.github.saintedlittle.MainActivity
+import com.github.saintedlittle.repo.ReportStatus
 import com.github.saintedlittle.util.QuickReplySessions
 import dev.lone.itemsadder.api.CustomStack
 import dev.lone.itemsadder.api.FontImages.FontImageWrapper
@@ -19,6 +20,9 @@ import org.bukkit.inventory.meta.ItemMeta
 import org.bukkit.persistence.PersistentDataType
 
 class ReportsMenu(private val plugin: MainActivity) : Listener {
+
+    // --- режим просмотра меню
+    private enum class ViewMode { ACTIVE, CLOSED }
 
     // --- Текстурное меню ---
     private val TITLE = ""
@@ -40,23 +44,31 @@ class ReportsMenu(private val plugin: MainActivity) : Listener {
 
     // состояние
     private val viewersPage = mutableMapOf<Player, Int>()
+    private val viewersMode = mutableMapOf<Player, ViewMode>()
     private val openViewers = mutableSetOf<Player>()
 
     /* ----------------------------- API ----------------------------- */
 
-    fun open(p: Player) {
+    /** Открыть меню: по умолчанию активные; если [closedOnly]==true — только закрытые. */
+    fun open(p: Player, closedOnly: Boolean = false) {
         if (!p.hasPermission("hgnreports.admin")) { plugin.messages.send(p, "no_permission"); return }
         viewersPage[p] = 0
+        viewersMode[p] = if (closedOnly) ViewMode.CLOSED else ViewMode.ACTIVE
         openViewers += p
 
         val tiw = TexturedInventoryWrapper(null, SIZE, TITLE, OFFSET_X, OFFSET_Y, FontImageWrapper(TEXTURE_ID))
         val inv = tiw.internal
-        fill(inv, p, 0)
+        fill(inv, p, 0, viewersMode[p]!!)
         tiw.showInventory(p)
     }
 
     fun isViewing(p: Player) = p in openViewers
-    fun refreshFor(p: Player) { if (isViewing(p)) fill(p.openInventory.topInventory, p, viewersPage[p] ?: 0) }
+    fun refreshFor(p: Player) {
+        if (!isViewing(p)) return
+        val page = viewersPage[p] ?: 0
+        val mode = viewersMode[p] ?: ViewMode.ACTIVE
+        fill(p.openInventory.topInventory, p, page, mode)
+    }
     fun refreshAll() { Bukkit.getOnlinePlayers().forEach { if (isViewing(it)) refreshFor(it) } }
 
     /* --------------------------- Рендер ---------------------------- */
@@ -96,16 +108,21 @@ class ReportsMenu(private val plugin: MainActivity) : Listener {
         return if (s.length <= max) s else s.substring(0, max - 3) + "..."
     }
 
-    private fun totalActiveReports(): List<com.github.saintedlittle.repo.Report> =
-        plugin.reports.listForGui(true, 10_000)
+    private fun totalReports(mode: ViewMode): List<com.github.saintedlittle.repo.Report> =
+        when (mode) {
+            ViewMode.ACTIVE ->
+                plugin.reports.listForGui(true, 10_000) // только OPEN/ANSWERED
+            ViewMode.CLOSED ->
+                plugin.reports.listForGui(false, 10_000).filter { it.status == ReportStatus.CLOSED }
+        }
 
     private fun pages(total: Int, per: Int) = if (total == 0) 1 else (total - 1) / per + 1
 
-    private fun fill(inv: Inventory, p: Player, page: Int) {
+    private fun fill(inv: Inventory, p: Player, page: Int, mode: ViewMode) {
         inv.clear()
 
-        val all = totalActiveReports()
-        val per = SLOT_BACK                       // 0..35 = 36 слотов на страницу
+        val all = totalReports(mode)
+        val per = SLOT_BACK                       // слотов на страницу (0..35)
         val maxPage = pages(all.size, per) - 1
         val cur = page.coerceIn(0, maxPage)
         if (cur != page) viewersPage[p] = cur
@@ -114,7 +131,6 @@ class ReportsMenu(private val plugin: MainActivity) : Listener {
         val end = (start + per).coerceAtMost(all.size)
         val slice = if (start < end) all.subList(start, end) else emptyList()
 
-        // Заполняем с самого первого слота подряд до строки со стрелками
         var idx = 0
         for (slot in 0 until SLOT_BACK) {
             val r = slice.getOrNull(idx++) ?: break
@@ -157,20 +173,21 @@ class ReportsMenu(private val plugin: MainActivity) : Listener {
         val meta = it.itemMeta ?: return
         val pdc = meta.persistentDataContainer
         val act = pdc.get(KEY_ACTION, PersistentDataType.STRING) ?: return
+        val mode = viewersMode[p] ?: ViewMode.ACTIVE
 
         when (act) {
             ACT_PREV -> {
                 val cur = viewersPage[p] ?: 0
                 viewersPage[p] = (cur - 1).coerceAtLeast(0)
-                fill(e.inventory, p, viewersPage[p]!!)
+                fill(e.inventory, p, viewersPage[p]!!, mode)
             }
             ACT_NEXT -> {
                 val cur = viewersPage[p] ?: 0
-                val total = totalActiveReports().size
+                val total = totalReports(mode).size
                 val per = SLOT_BACK
                 val max = pages(total, per) - 1
                 viewersPage[p] = (cur + 1).coerceAtMost(max)
-                fill(e.inventory, p, viewersPage[p]!!)
+                fill(e.inventory, p, viewersPage[p]!!, mode)
             }
             ACT_OPEN -> {
                 val id = pdc.get(KEY_REPORT_ID, PersistentDataType.LONG) ?: return
@@ -203,16 +220,19 @@ class ReportsMenu(private val plugin: MainActivity) : Listener {
                             )
                         }
                     }
-                    if (withPrompt) plugin.messages.send(p, "prompt_quick_reply")
+                    // В закрытых репортах не предлагаем быстрый ответ
+                    if (withPrompt && r.status != ReportStatus.CLOSED) plugin.messages.send(p, "prompt_quick_reply")
                 }
 
                 if (e.click.isLeftClick) {
                     p.closeInventory()
                     details(withPrompt = true)
-                    QuickReplySessions.start(p, id)
-                    Bukkit.getScheduler().runTaskLater(plugin, Runnable {
-                        if (QuickReplySessions.target(p) == id) QuickReplySessions.stop(p)
-                    }, 20L * 60)
+                    if (r.status != ReportStatus.CLOSED) {
+                        QuickReplySessions.start(p, id)
+                        Bukkit.getScheduler().runTaskLater(plugin, Runnable {
+                            if (QuickReplySessions.target(p) == id) QuickReplySessions.stop(p)
+                        }, 20L * 60)
+                    }
                 } else {
                     details(withPrompt = false)
                 }
@@ -226,6 +246,7 @@ class ReportsMenu(private val plugin: MainActivity) : Listener {
         if (p in openViewers) {
             openViewers.remove(p)
             viewersPage.remove(p)
+            viewersMode.remove(p)
         }
     }
 }
