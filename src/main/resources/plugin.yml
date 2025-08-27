@@ -1,0 +1,29 @@
+name: HGN-Reports
+main: com.github.saintedlittle.MainActivity
+version: 1.0.0
+api-version: "1.21"
+author: SaintedLittle
+commands:
+  report:
+    description: Reports command (players & admins)
+    usage: /report <username> <text> | /report answer <id> <text> | /report close <id> with <reason> | /report delete <id> | /report admin <add|remove> <username> | /report reload
+    aliases: [rep]
+    permission: hgnreports.use
+  reports:
+    description: Open the admin reports GUI
+    usage: /reports
+    permission: hgnreports.admin
+  myreport:
+    description: "Показать чат вашего текущего репорта (или по id)"
+    usage: "/myreport [id]"
+    permission: ""   # доступна всем
+permissions:
+  hgnreports.use:
+    default: true
+  hgnreports.admin:
+    default: op
+  hgnreports.head:
+    default: op
+    description: Head admin view stats
+
+depend: ["PlaceholderAPI"] #

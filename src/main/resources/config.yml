@@ -1,0 +1,22 @@
+storage:
+  sqlite_file: "reports.db"
+
+telegram:
+  enabled: true
+  bot_token: "8472009511:AAGS4XuPjHrkDEg2dyTRQng5znvzyO0rHM4"
+  # Admin Telegram numeric IDs who may answer/close/delete via bot
+  admin_ids: [123456789, 987654321]
+  # Optional: Forward every new report to these chat IDs (group or user). Leave empty to disable.
+  notify_chats: []
+
+gui:
+  title: "&cReports &7(Left-click=Open, Right-click=Info)"
+  show_only_open_by_default: true
+  max_visible: 40
+
+behavior:
+  # If no answer within 5 minutes (300s), hide from GUI (still available by ID)
+  auto_hide_seconds: 300
+
+locale: "ru" # "ru" or "en"
+debug: false
